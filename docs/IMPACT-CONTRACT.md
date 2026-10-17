@@ -1,7 +1,7 @@
 # The impact contract, for a consumer
 
 Status: normative for any consumer of revised work  
-Last verified: 2026-09-27
+Last verified: 2026-10-17
 
 The impact engine was measured against a competent application and reduced away by
 [ADR-003](ADR-003-measure-before-building.md), then restored by
@@ -53,6 +53,30 @@ it fails quietly, because the recomputed answer usually looks reasonable.
 
 Provenance explains. Only a consumed dependency forces re-evaluation. A set read records its declared
 member set and re-resolves it, so a member added later is visible to the read rather than invisible to it.
+
+What a run consumed is a projection, and the projection is typed and versioned
+([ADR-006](ADR-006-typed-projection-identity.md)). Two things follow for a consumer that keys a cache on it.
+
+It is typed by the declared type of the payload it was read from. A payload that keeps its bytes and moves
+its declared type is a different consumption, so a key built from the bytes alone reuses an answer nobody
+can reconstruct, and the declared type has to be an ingredient of the key. A value with no declared type
+behind it, such as an engine's own produced output, is typed by nothing rather than by anything, and that
+is a value like any other.
+
+It is versioned, and the version names the definition. When the definition of the projection changes, the
+version moves with it, and a key carrying the old version is revalidated rather than compared. A consumer
+that keeps a key without its version cannot tell a moved definition from an unchanged one, and will read a
+silently reused answer as a check that passed.
+
+The derivation policy is also part of the identity, and it is larger than the evaluator: a record carries
+the evaluator, its version and the engine that ran it, and a moved engine revalidates the record just as a
+moved evaluator does. One predicate over those three is what keeps a reuse decision and an impact frontier
+from giving two answers to one question.
+
+The same rule has a write side. Recomputing a node replaces its payload and does not re-declare its type.
+A consumer that writes a produced value back into a working snapshot under a type of its own invention has
+given one node two identities inside one pass, and its own next pass will not reproduce the keys it just
+recorded.
 
 ## Rule 6: publication is a conservative compare-and-swap
 

@@ -54,6 +54,17 @@ Kollio.
   unconsumed field is enough. `src/impact` is restored; the Kernel is admission, history, portable
   continuity, the impact engine and the adapters. The rules are in `docs/IMPACT-CONTRACT.md` and
   `the_contract_document_and_the_measured_codes_agree` still binds that document to the engine.
+- The identity of a consumption is typed and versioned, and one predicate decides it, recorded in
+  `docs/ADR-006-typed-projection-identity.md`. `Facet::fingerprint` folds the declared type of the payload a
+  value was read from, `FACET_COMPARATOR_VERSION` moved to `facet-canonical-json/2` so a record computed
+  under the previous definition is revalidated rather than compared, and `definition_moved` covers the
+  evaluator, its version and the engine for both the reuse gate and `directly_concerned`. Two defects were
+  found in the code and falsified in `tests/m3_projection_identity.rs` before the fix: a byte-identical
+  payload under a moved declared type was reused, and a record produced by another engine was carried
+  forward while the frontier considered it reached. No execution count and no reuse decision in a recorded
+  run moves, and the facet advantage is unchanged; the engine and application surfaces re-measure at 1702
+  and 272 lines from 1630 and 257, and `docs/ADR-003` and `docs/ADR-004` keep the figures recorded at their
+  own decisions.
 - M5 tranche 1 is implemented in `src/experience.rs`, with `tests/transfer_plan.rs`,
   `tests/transfer_benchmark.rs`, `tests/transfer_contract.rs` and a checked-in
   `experiments/transfer-benchmark/` result. 30 closed cases, zero false direct transfers, and a **tie**

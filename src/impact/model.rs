@@ -22,7 +22,14 @@ use crate::model::digest_of_bytes;
 pub type NodeId = String;
 
 pub const IMPACT_PLAN_SCHEMA: &str = "world-impact-plan/v0-experimental";
-pub const FACET_COMPARATOR_VERSION: &str = "facet-canonical-json/1";
+/// The identity of the projection a run consumed a value under.
+///
+/// The projection is the facet, the declared type of the payload it was read from
+/// and the canonical value, and this string is the identity of that definition. A
+/// record carrying another value was computed under another definition, so it is
+/// revalidated rather than compared (`docs/ADR-002-revisable-work.md`). Bumping it
+/// is how the definition moving is made visible instead of silent.
+pub const FACET_COMPARATOR_VERSION: &str = "facet-canonical-json/2";
 pub const EVALUATOR_ENGINE_VERSION: &str = "world-impact/sequential/0";
 
 /// Three natures are enough in the core. Domain notions such as a budget or an
@@ -127,8 +134,10 @@ impl Snapshot {
 /// The part of a value a run actually consumed.
 ///
 /// A narrower projection than the whole value is a deterministic, typed and
-/// versioned function. A similarity score is not an equality comparator and is
-/// deliberately not representable here.
+/// versioned function. It is typed because the declared type of the payload it was
+/// read from is part of what was consumed, and versioned because the definition
+/// itself carries a version a record can be compared against. A similarity score
+/// is not an equality comparator and is deliberately not representable here.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Facet {
@@ -148,11 +157,23 @@ impl Facet {
         }
     }
 
-    /// The fingerprint of a consumed value, including absence.
-    pub fn fingerprint(&self, value: Option<&serde_json::Value>) -> String {
+    /// The identity of a consumed value, including absence.
+    ///
+    /// The declared type of the payload the value was read from is an ingredient
+    /// of that identity, because the projection is typed by it: the same bytes
+    /// under another declared type are a different consumption and must invalidate
+    /// rather than be reused. `None` is for a value with no declared node type
+    /// behind it, such as a record's own output, and it is a value like any other
+    /// rather than a wildcard.
+    pub fn fingerprint(
+        &self,
+        payload_type: Option<&str>,
+        value: Option<&serde_json::Value>,
+    ) -> String {
         let material = serde_json::json!({
             "comparator": FACET_COMPARATOR_VERSION,
             "facet": self,
+            "payloadType": payload_type,
             "value": value,
         });
         digest_of_bytes(
@@ -189,8 +210,13 @@ pub struct CapturedRead {
 }
 
 impl CapturedRead {
-    pub fn of(subject: &str, facet: Facet, value: Option<&serde_json::Value>) -> Self {
-        let fingerprint = facet.fingerprint(value);
+    pub fn of(
+        subject: &str,
+        payload_type: Option<&str>,
+        facet: Facet,
+        value: Option<&serde_json::Value>,
+    ) -> Self {
+        let fingerprint = facet.fingerprint(payload_type, value);
         Self {
             subject: subject.to_owned(),
             binding: ReadBinding::Current,
@@ -329,8 +355,12 @@ pub struct EvaluationRecord {
 
 impl EvaluationRecord {
     /// The facet of this record's output that a consumer would compare.
+    ///
+    /// The output is a produced value with no declared node type behind it, so it
+    /// is fingerprinted without one. What produced it is already carried by the
+    /// evaluator, its version and the engine.
     pub fn output_fingerprint(&self) -> String {
-        Facet::Whole.fingerprint(Some(&self.output))
+        Facet::Whole.fingerprint(None, Some(&self.output))
     }
 }
 
