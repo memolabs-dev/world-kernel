@@ -103,7 +103,8 @@ Then the comparison, in [ADR-003](ADR-003-measure-before-building.md). A full re
 application cache, the same application consuming UNI staleness, and the impact core were given the same
 seven scenarios. All four agreed on every observable result. The application avoided the same work as the
 core on six of the seven. On the seventh the core ran no evaluator where the application ran two, because
-a consumed facet is a narrower cache key than a whole value, and that cost 1630 lines. Result:
+a consumed facet is a narrower cache key than a whole value, and that cost 1702 engine lines against 272
+of application. Result:
 [experiments/incumbent-comparison](../experiments/incumbent-comparison/RESULTS.md).
 
 The reduction was applied. `src/impact` left the shipped surface, the rules it enforced were written down

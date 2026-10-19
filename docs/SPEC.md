@@ -9,7 +9,9 @@ express.
 Active milestone: none further pre-registered. M5 tranche 1 closed on its own gate and was then reduced;
 M4 tranche 1 is done and remains limited to the stories in [M4-PROTOCOL.md](M4-PROTOCOL.md). No M6, and no
 new capability, is authorised: the two reversal conditions attached to the reduction have now been run and
-neither funds one.
+neither funds one. A repair that makes an already-authorised rule true is not a new capability: on
+2026-10-17 the typed and versioned projection ADR-002 already prescribed was enforced, recorded in
+[ADR-006](ADR-006-typed-projection-identity.md).
 
 ## 1. Document contract
 
@@ -579,6 +581,18 @@ Two contract requirements are new and normative:
   dependency forces re-evaluation. A set read records its declared member set and re-resolves it, so a new
   member is visible to the read.
 
+The projection a run consumed is typed and versioned, and the rule was already normative in
+[ADR-002](ADR-002-revisable-work.md) before the engine enforced it. A payload that keeps its bytes and moves
+its declared type is a different consumption, so the declared type is an ingredient of the recorded
+fingerprint and a consumer is re-evaluated rather than reused when it moves. The definition of the
+projection carries a version, and a record computed under another version is revalidated rather than
+compared. The derivation policy a record was produced under is the evaluator, its version and the engine,
+and one predicate over those three decides both reuse and the impact frontier. This is what makes the
+identity of a consumption different from a digest of the bytes: two payloads can be byte-identical and mean
+different things, and two can differ where nobody read and mean the same. The decision, the two defects it
+fixes and the stop condition are in [ADR-006](ADR-006-typed-projection-identity.md); the tests are
+`tests/m3_projection_identity.rs`.
+
 An evaluator may claim a weaker profile than the consumer grants, never a stronger one. A recompute never
 promotes a record's coverage. A data manifest cannot award itself the closed profile. A recorded decision is
 never recomputed: when its declared support moved, the engine produces a human-review obligation and
@@ -810,7 +824,7 @@ that result.
 
 | Condition | Status | Evidence |
 |---|---|---|
-| a competent application transaction provides the same safety, replay and handoff value at lower total integration cost | **partly fired** | fired for admission safety: 80 of 80 cases agree, no decision-code disagreement, and the portable envelope prevented no error class the application did not also prevent. Fired again for incremental revision: 7 of 7 scenarios agree and the core bought 2 evaluator runs for 1630 lines. Replay and handoff value remain **unmeasured**, not disproved, because no consumer ever consumed a receipt. |
+| a competent application transaction provides the same safety, replay and handoff value at lower total integration cost | **partly fired** | fired for admission safety: 80 of 80 cases agree, no decision-code disagreement, and the portable envelope prevented no error class the application did not also prevent. Fired again for incremental revision: 7 of 7 scenarios agree and the core bought 2 evaluator runs for 1702 lines against 272 of application. Replay and handoff value remain **unmeasured**, not disproved, because no consumer ever consumed a receipt. |
 | a second adapter requires domain rules inside the Kernel | not observed | the Kollio adapter returns a reassessment frontier and no domain condition reaches `Kernel::submit`, so that surface still has one domain. A second domain was attempted over the impact surface at M3-24 (`tests/m3_second_domain.rs`) and `src/impact` stayed byte-identical across the change that added it. |
 | exact subject binding cannot be kept through the real application path | not observed | the collector ran UNI's real CLI and bound an exact candidate digest, and the live contract test passes. |
 | an operation advertised as mediated remains writable through an equivalent unmediated path | untested | no mediated operation was advertised, so the condition was never reachable. |

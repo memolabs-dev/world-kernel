@@ -27,8 +27,8 @@
     "sameWorkAvoidedEverywhere": false
   },
   "lineCounts": {
-    "applicationMechanism": 257,
-    "kernelSurface": 1630,
+    "applicationMechanism": 272,
+    "kernelSurface": 1702,
     "note": "physical lines including comments, the count a team would pay for",
     "tests": 1429
   },
@@ -55,7 +55,7 @@
       },
       {
         "clause": "at a comparable price",
-        "evidence": "the saving is 2 evaluator runs on a closed 3-evaluator fixture, bought with 1630 lines of engine against 257 lines of application",
+        "evidence": "the saving is 2 evaluator runs on a closed 3-evaluator fixture, bought with 1702 lines of engine against 272 lines of application",
         "met": true
       }
     ],
@@ -196,19 +196,19 @@
     },
     {
       "id": "A3",
-      "lines": 257,
+      "lines": 272,
       "name": "application cache on whole values",
       "role": "the competent application mechanism, not a strawman"
     },
     {
       "id": "B3",
-      "lines": 257,
+      "lines": 272,
       "name": "A3 consuming UNI staleness",
       "role": "the same application, told which assurance went stale"
     },
     {
       "id": "C3",
-      "lines": 1630,
+      "lines": 1702,
       "name": "the World Kernel impact core",
       "role": "the portable mechanism under test, restored to the Kernel by ADR-004"
     }
