@@ -48,7 +48,7 @@ You need Git, a current stable Rust toolchain, and `jq` for the schema checks. N
 or service is needed; SQLite is built through the bundled `rusqlite` feature.
 
 ```bash
-git clone https://github.com/guillaume-flambard/world-kernel.git
+git clone https://github.com/memolabs-dev/world-kernel.git
 cd world-kernel
 cargo test
 ```
