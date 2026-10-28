@@ -142,6 +142,7 @@ impl<'a> SnapshotJournal<'a> {
     fn record_facet(
         &mut self,
         subject: &str,
+        payload_type: Option<&str>,
         facet: &Facet,
         value: Option<Value>,
         binding: ReadBinding,
@@ -152,7 +153,7 @@ impl<'a> SnapshotJournal<'a> {
                 self.limits.max_reads
             )));
         }
-        let fingerprint = facet.fingerprint(value.as_ref());
+        let fingerprint = facet.fingerprint(payload_type, value.as_ref());
         let present = value.is_some();
         self.reads.insert(
             (subject.to_owned(), format!("{facet:?}")),
@@ -175,16 +176,19 @@ impl ReadJournal for SnapshotJournal<'_> {
             },
             None => ReadBinding::Current,
         };
-        self.record_facet(subject, &facet, value, binding)
+        let payload_type = version.map(|version| version.payload_type.as_str());
+        self.record_facet(subject, payload_type, &facet, value, binding)
     }
 
     fn read_absence(&mut self, subject: &str) -> Result<(), Error> {
+        let version = self.snapshot.live(subject);
+        let payload_type = version.map(|version| version.payload_type.as_str());
+        let payload = version.map(|version| version.payload.clone());
         self.record_facet(
             subject,
+            payload_type,
             &Facet::Whole,
-            self.snapshot
-                .live(subject)
-                .map(|version| version.payload.clone()),
+            payload,
             ReadBinding::Current,
         )?;
         Ok(())
@@ -344,7 +348,13 @@ fn check_read(read: &CapturedRead, snapshot: &Snapshot) -> ReadOutcome {
         ReadBinding::Current => snapshot.node(&read.subject),
     };
     let value = current.and_then(|version| read.facet.value(&version.payload));
-    let after = read.facet.fingerprint(value.as_ref());
+    // The projection is typed by the declared type of the payload it is read from,
+    // so the same bytes under another declared type cannot compare equal: the
+    // legitimate way of interpreting them moved (ADR-002).
+    let after = read.facet.fingerprint(
+        current.map(|version| version.payload_type.as_str()),
+        value.as_ref(),
+    );
     if after == read.fingerprint {
         ReadOutcome::Unchanged
     } else {
@@ -580,16 +590,11 @@ pub fn revise(
             continue;
         };
 
-        // A moved evaluator or comparator definition invalidates the record
-        // itself. An old fingerprint must not be reused as if its definition had
-        // not changed.
-        let evaluator_moved = evaluators
-            .get(id)
-            .map(|evaluator| {
-                evaluator.name() != previous.evaluator
-                    || evaluator.version() != previous.evaluator_version
-            })
-            .unwrap_or(true);
+        // A moved evaluator, a moved engine or a moved comparator definition
+        // invalidates the record itself. An old fingerprint must not be reused as if
+        // its definition had not changed. The same predicate decides what the
+        // frontier reaches, so the two answers cannot part company.
+        let policy_moved = definition_moved(previous, evaluators.get(id).map(Box::as_ref));
 
         let mut read_moved: Option<(String, ReadOutcome)> = None;
         for read in &previous.reads {
@@ -610,7 +615,7 @@ pub fn revise(
             }
         }
 
-        if !evaluator_moved && read_moved.is_none() && query_moved.is_none() {
+        if !policy_moved && read_moved.is_none() && query_moved.is_none() {
             // A record carries the profile it was produced under, and it may only be carried
             // forward under an authority the consumer still holds. Nothing has to have moved for a
             // grant to be withdrawn, so this is checked here and not only when an evaluator runs.
@@ -748,10 +753,10 @@ pub fn revise(
 
         let evaluated = evaluate_one(&working, id, evaluators, trust, limits)?;
         let same = evaluated.record.output_fingerprint() == previous.output_fingerprint();
-        let trigger = if evaluator_moved {
-            Some(format!(
-                "evaluator {}@{}",
-                previous.evaluator, previous.evaluator_version
+        let trigger = if policy_moved {
+            Some(definition_trigger(
+                previous,
+                evaluators.get(id).map(Box::as_ref),
             ))
         } else {
             read_moved
@@ -799,11 +804,20 @@ pub fn revise(
             ));
         }
 
+        // Recomputing a node replaces its payload; it does not re-declare how that
+        // payload is typed. The projection is typed by the declaration, so
+        // rewriting it here would give the node a second identity in the same pass
+        // and the reads recorded against it could not be reproduced from the
+        // snapshot the record is later compared against.
+        let declared_type = working
+            .node(id)
+            .map(|version| version.payload_type.clone())
+            .unwrap_or_else(|| format!("derived/{}", evaluated.record.evaluator));
         working.nodes.insert(
             id.clone(),
             NodeVersion::new(
                 evaluated.record.target_version,
-                &format!("derived/{}", evaluated.record.evaluator),
+                &declared_type,
                 evaluated.value.clone(),
                 &evaluated.record.evaluator,
             ),
@@ -913,15 +927,53 @@ fn declared_support(snapshot: &Snapshot, id: &str) -> Vec<NodeId> {
         .unwrap_or_default()
 }
 
+/// Whether the definition a record was produced under has moved.
+///
+/// The derivation policy is the evaluator, the version of the evaluator and the
+/// engine that ran it. All three decide what a fingerprint means, so a record
+/// produced under another one of them is revalidated, never reused as if its
+/// definition had not moved (`docs/ADR-002-revisable-work.md`). A record whose
+/// evaluator is no longer registered cannot be re-run, which is why a missing
+/// evaluator counts as moved rather than as unchanged.
+fn definition_moved(record: &EvaluationRecord, evaluator: Option<&dyn Evaluator>) -> bool {
+    let Some(evaluator) = evaluator else {
+        return true;
+    };
+    evaluator.name() != record.evaluator
+        || evaluator.version() != record.evaluator_version
+        || record.engine.as_str() != EVALUATOR_ENGINE_VERSION
+}
+
+/// Names the part of the derivation policy that moved, for the trail.
+fn definition_trigger(record: &EvaluationRecord, evaluator: Option<&dyn Evaluator>) -> String {
+    let evaluator_moved = evaluator
+        .map(|evaluator| {
+            evaluator.name() != record.evaluator || evaluator.version() != record.evaluator_version
+        })
+        .unwrap_or(true);
+    if evaluator_moved {
+        format!(
+            "evaluator {}@{}",
+            record.evaluator, record.evaluator_version
+        )
+    } else {
+        format!("engine {}", record.engine)
+    }
+}
+
 /// A node is directly concerned when something it actually consumed moved, or
 /// when the definition that produced it moved.
-fn directly_concerned(record: &EvaluationRecord, target: &Snapshot) -> bool {
+fn directly_concerned(
+    record: &EvaluationRecord,
+    target: &Snapshot,
+    evaluators: &BTreeMap<String, Box<dyn Evaluator>>,
+) -> bool {
     let moved_definition = record.target_version
         != target
             .node(&record.target)
             .map(|n| n.version)
             .unwrap_or(u64::MAX)
-        || record.engine.as_str() != super::model::EVALUATOR_ENGINE_VERSION;
+        || definition_moved(record, evaluators.get(&record.target).map(Box::as_ref));
     if moved_definition {
         return true;
     }
@@ -952,17 +1004,7 @@ fn impact_frontier(
     for id in order {
         let mut reasons: Vec<NodeId> = Vec::new();
         if let Some(record) = recorded.get(id) {
-            if directly_concerned(record, target) {
-                reasons.push(id.clone());
-            }
-            let definition_moved = evaluators
-                .get(id)
-                .map(|evaluator| {
-                    evaluator.name() != record.evaluator
-                        || evaluator.version() != record.evaluator_version
-                })
-                .unwrap_or(true);
-            if definition_moved {
+            if directly_concerned(record, target, evaluators) {
                 reasons.push(id.clone());
             }
             // Propagation is transitive through *reached* nodes only. A subject

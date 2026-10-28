@@ -131,13 +131,25 @@ fn revise_against(
                 && entry.reads.iter().all(|(subject, fingerprint)| {
                     match working.live(subject) {
                         Some(version) => {
-                            Facet::Whole.fingerprint(Some(&version.payload)) == *fingerprint
+                            Facet::Whole
+                                .fingerprint(Some(&version.payload_type), Some(&version.payload))
+                                == *fingerprint
                         }
                         // A read that recorded an absence still holds if it is absent.
-                        None => Facet::Whole.fingerprint(None) == *fingerprint,
+                        None => Facet::Whole.fingerprint(None, None) == *fingerprint,
                     }
                 })
         });
+
+        // Writing a produced value into the working snapshot is how a downstream
+        // target reads what was just produced. It re-declares nothing: the declared
+        // type of the node stays the one the snapshot gave it, because a reader
+        // that fingerprints the payload is reading it under that declaration.
+        let declared_type = working
+            .nodes
+            .get(target)
+            .map(|version| version.payload_type.clone())
+            .unwrap_or_else(|| "app/derived".to_owned());
 
         if reusable {
             let entry = cache.entries.get(target).expect("the entry was just found");
@@ -146,7 +158,7 @@ fn revise_against(
                 target.clone(),
                 world_kernel::impact::NodeVersion::new(
                     1,
-                    "app/cached",
+                    &declared_type,
                     entry.value.clone(),
                     target,
                 ),
@@ -187,7 +199,7 @@ fn revise_against(
         values.insert(target.clone(), value.clone());
         working.nodes.insert(
             target.clone(),
-            world_kernel::impact::NodeVersion::new(1, "app/derived", value, target),
+            world_kernel::impact::NodeVersion::new(1, &declared_type, value, target),
         );
     }
 
@@ -223,14 +235,17 @@ impl ReadJournal for AppJournal<'_> {
         // comparator to record.
         self.reads.push((
             subject.to_owned(),
-            Facet::Whole.fingerprint(version.map(|version| &version.payload)),
+            Facet::Whole.fingerprint(
+                version.map(|version| version.payload_type.as_str()),
+                version.map(|version| &version.payload),
+            ),
         ));
         Ok(value)
     }
 
     fn read_absence(&mut self, subject: &str) -> Result<(), world_kernel::impact::Error> {
         self.reads
-            .push((subject.to_owned(), Facet::Whole.fingerprint(None)));
+            .push((subject.to_owned(), Facet::Whole.fingerprint(None, None)));
         Ok(())
     }
 
